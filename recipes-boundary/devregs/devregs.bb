@@ -1,6 +1,6 @@
 DESCRIPTION = "allow access to device registers"
-LICENSE = "GPL-2.0"
-LIC_FILES_CHKSUM = "file://LICENSE;md5=801f80980d171dd6425610833a22dbe6"
+LICENSE = "GPL-1.0"
+LIC_FILES_CHKSUM = "file://LICENSE;e9e36a9de734199567a4d769498f743d"
 PR = "r0"
 PV = "1.0"
 
