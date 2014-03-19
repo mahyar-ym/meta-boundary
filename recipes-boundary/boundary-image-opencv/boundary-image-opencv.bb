@@ -1,4 +1,4 @@
-DESCRIPTION = "This Image Extends fsl-image-multimedia-full with additional OpenCV and Devregs features"
+DESCRIPTION = "This image extends fsl-image-multimedia-full with additional OpenCV and Devregs features"
 
 require recipes-fsl/images/fsl-image-multimedia-full.bb 
 
