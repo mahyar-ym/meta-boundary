@@ -2,7 +2,7 @@ DESCRIPTION = "This image extends fsl-image-multimedia-full with additional Open
 
 require recipes-fsl/images/fsl-image-multimedia-full.bb 
 
-EXTRA_IMAGE_FEATURES += "dev-pkgs"
+LICENSE_FLAGS = "commercial"
 
 IMAGE_INSTALL += "\
 	devregs \
