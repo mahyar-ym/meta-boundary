@@ -1,9 +1,10 @@
-This layer provides OpenCV and Devregs 
+This layer provides support for Boundary Deviecs' Devregs project.
+https://github.com/boundarydevices/devregs
+
 
 
 Adding the boundary layer to your build
 =================================================
-
 Assuming the boundary layer exists at the top-level of your
 yocto build tree, you can add it to the build system by adding the
 location of the boundary layer to bblayers.conf, along with any
@@ -17,11 +18,20 @@ other layers needed. e.g.:
     "
 
 
-Allowing commercial license (for opencv) 
+
+Allowing commercial license 
 =====================================
 Modify the local config file (located at build/conf/local.conf) to
 allow acces to the commercial license
 
 LICENSE_FLAGS_WHITELIST = "commercial"
 
+
+
+Using developement packages (if needed)
+=============================================
+Modify the local config file (located at build/conf/local.conf) to 
+use developement packages
+
+EXTRA_IMAGE_FEATURES += "dev-pkgs"
 
