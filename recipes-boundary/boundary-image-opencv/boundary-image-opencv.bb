@@ -1,6 +1,6 @@
 DESCRIPTION = "This Image Extends fsl-image-multimedia-full with additional OpenCV and Devregs features"
 
-require recipes-core/images/core-image-minimal.bb
+require recipes-fsl/images/fsl-image-multimedia-full.bb 
 
 EXTRA_IMAGE_FEATURES += "dev-pkgs"
 
