@@ -1,0 +1,997 @@
+From dc9f1f56a2483deea20e37e181d843a277b8fb47 Mon Sep 17 00:00:00 2001
+From: Eric Nelson <eric.nelson@boundarydevices.com>
+Date: Sun, 23 Mar 2014 07:17:08 -0700
+Subject: [PATCH 1/2] Added hardware accelerated decoding with the i.MX VPU
+
+Signed-off-by: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+---
+ content/renderer/media/webmediaplayer_impl.cc |   5 +
+ media/filters/vpu_framebuffers.cc             | 106 +++++
+ media/filters/vpu_framebuffers.h              |  36 ++
+ media/filters/vpu_video_decoder.cc            | 614 ++++++++++++++++++++++++++
+ media/filters/vpu_video_decoder.h             |  74 ++++
+ media/media.gyp                               |  28 ++
+ 6 files changed, 863 insertions(+)
+ create mode 100644 media/filters/vpu_framebuffers.cc
+ create mode 100644 media/filters/vpu_framebuffers.h
+ create mode 100644 media/filters/vpu_video_decoder.cc
+ create mode 100644 media/filters/vpu_video_decoder.h
+
+diff --git a/content/renderer/media/webmediaplayer_impl.cc b/content/renderer/media/webmediaplayer_impl.cc
+index b7094f6..7ac7318 100644
+--- a/content/renderer/media/webmediaplayer_impl.cc
++++ b/content/renderer/media/webmediaplayer_impl.cc
+@@ -57,6 +57,7 @@
+ #include "media/filters/opus_audio_decoder.h"
+ #include "media/filters/video_renderer_impl.h"
+ #include "media/filters/vpx_video_decoder.h"
++#include "media/filters/vpu_video_decoder.h"
+ #include "third_party/WebKit/public/platform/WebContentDecryptionModule.h"
+ #include "third_party/WebKit/public/platform/WebMediaSource.h"
+ #include "third_party/WebKit/public/platform/WebRect.h"
+@@ -1187,6 +1188,10 @@ void WebMediaPlayerImpl::StartPipeline() {
+         new media::GpuVideoDecoder(gpu_factories_, media_log_));
+   }
+ 
++#if !defined(MEDIA_DISABLE_IMXVPU)
++  video_decoders.push_back(new media::VpuVideoDecoder(media_loop_));
++#endif  // !defined(MEDIA_DISABLE_IMXVPU)
++
+ #if !defined(MEDIA_DISABLE_LIBVPX)
+   video_decoders.push_back(new media::VpxVideoDecoder(media_loop_));
+ #endif  // !defined(MEDIA_DISABLE_LIBVPX)
+diff --git a/media/filters/vpu_framebuffers.cc b/media/filters/vpu_framebuffers.cc
+new file mode 100644
+index 0000000..fce43fc
+--- /dev/null
++++ b/media/filters/vpu_framebuffers.cc
+@@ -0,0 +1,106 @@
++#include <string.h>
++#include <stdint.h>
++#include "vpu_framebuffers.h"
++#include "base/logging.h"
++
++
++#define ALIGN_VAL_TO(LENGTH, ALIGN_SIZE)  ( ((uintptr_t)((LENGTH) + (ALIGN_SIZE) - 1) / (ALIGN_SIZE)) * (ALIGN_SIZE) )
++#define FRAME_ALIGN 16
++
++
++namespace media {
++
++
++VPUFramebuffers::VPUFramebuffers() {
++}
++
++
++void VPUFramebuffers::init(VpuDecHandle handle, VpuDecInitInfo const &init_info) {
++  framebuffers.resize(init_info.nMinFrameBufferCount);
++
++  y_stride = ALIGN_VAL_TO(init_info.nPicWidth, FRAME_ALIGN);
++  if (init_info.nInterlace)
++    y_size = y_stride * ALIGN_VAL_TO(init_info.nPicHeight, (2 * FRAME_ALIGN));
++  else
++    y_size = y_stride * ALIGN_VAL_TO(init_info.nPicHeight, FRAME_ALIGN);
++
++  uv_stride = y_stride / 2;
++  u_size = v_size = mv_size = y_size / 4;
++
++  int alignment = init_info.nAddressAlignment;
++  if (alignment > 1)
++  {
++    y_size = ALIGN_VAL_TO(y_size, alignment);
++    u_size = ALIGN_VAL_TO(u_size, alignment);
++    v_size = ALIGN_VAL_TO(v_size, alignment);
++    mv_size = ALIGN_VAL_TO(mv_size, alignment);
++  }
++
++  pic_width = init_info.nPicWidth;
++  pic_height = init_info.nPicHeight;
++
++  total_size = y_size + u_size + v_size + mv_size + alignment;
++
++  LOG(INFO) << "Num VPU framebuffers: " << framebuffers.size();
++  LOG(INFO) << "VPU framebuffer memory block size:"
++    << "  total: " << total_size
++    << "  Y " << y_size
++    << "  U: " << u_size
++    << "  V: " << v_size
++    << "  Mv: " << mv_size
++    << "  alignment: " << alignment
++    ;
++
++  for (Framebuffers::iterator iter = framebuffers.begin(); iter != framebuffers.end(); ++iter) {
++    unsigned char *virt_ptr, *phys_ptr;
++
++    VpuFrameBuffer &framebuffer = *iter;
++
++    VpuMemDesc mem_desc;
++    memset(&mem_desc, 0, sizeof(VpuMemDesc));
++    mem_desc.nSize = total_size;
++    VPU_DecGetMem(&mem_desc);
++    phys_mem_blocks.push_back(mem_desc);
++
++    virt_ptr = (unsigned char*)(mem_desc.nVirtAddr);
++    phys_ptr = (unsigned char*)(mem_desc.nPhyAddr);
++
++    if (alignment > 1) {
++      phys_ptr = (unsigned char*)ALIGN_VAL_TO(phys_ptr, alignment);
++      virt_ptr = (unsigned char*)ALIGN_VAL_TO(virt_ptr, alignment);
++    }
++
++    framebuffer.nStrideY = y_stride;
++    framebuffer.nStrideC = uv_stride;
++
++    /* fill phy addr*/
++    framebuffer.pbufY     = phys_ptr;
++    framebuffer.pbufCb    = phys_ptr + y_size;
++    framebuffer.pbufCr    = phys_ptr + y_size + u_size;
++    framebuffer.pbufMvCol = phys_ptr + y_size + u_size + v_size;
++
++    /* fill virt addr */
++    framebuffer.pbufVirtY     = virt_ptr;
++    framebuffer.pbufVirtCb    = virt_ptr + y_size;
++    framebuffer.pbufVirtCr    = virt_ptr + y_size + u_size;
++    framebuffer.pbufVirtMvCol = virt_ptr + y_size + u_size + v_size;
++
++    framebuffer.pbufY_tilebot = 0;
++    framebuffer.pbufCb_tilebot = 0;
++    framebuffer.pbufVirtY_tilebot = 0;
++    framebuffer.pbufVirtCb_tilebot = 0;
++  }
++
++  VPU_DecRegisterFrameBuffer(handle, &(framebuffers[0]), framebuffers.size());
++}
++
++
++VPUFramebuffers::~VPUFramebuffers() {
++  LOG(INFO) << "Freeing VPU framebuffer memory";
++  for (PhysMemBlocks::iterator iter = phys_mem_blocks.begin(); iter != phys_mem_blocks.end(); ++iter)
++    VPU_DecFreeMem(&(*iter));
++}
++
++
++}
++
+diff --git a/media/filters/vpu_framebuffers.h b/media/filters/vpu_framebuffers.h
+new file mode 100644
+index 0000000..bb9b021
+--- /dev/null
++++ b/media/filters/vpu_framebuffers.h
+@@ -0,0 +1,36 @@
++#ifndef MEDIA_FILTERS_VPU_FRAMEBUFFERS_H_
++#define MEDIA_FILTERS_VPU_FRAMEBUFFERS_H_
++
++#include <list>
++#include <vector>
++#include <vpu_wrapper.h>
++
++
++namespace media {
++
++
++class VPUFramebuffers
++{
++public:
++  explicit VPUFramebuffers();
++  ~VPUFramebuffers();
++
++  void init(VpuDecHandle handle, VpuDecInitInfo const &init_info);
++
++private:
++  typedef std::vector < VpuFrameBuffer > Framebuffers;
++  typedef std::list < VpuMemDesc > PhysMemBlocks;
++
++  PhysMemBlocks phys_mem_blocks;
++  Framebuffers framebuffers;
++  int y_stride, uv_stride;
++  int y_size, u_size, v_size, mv_size;
++  int total_size;
++  unsigned int pic_width, pic_height;
++};
++
++
++}
++
++
++#endif
+diff --git a/media/filters/vpu_video_decoder.cc b/media/filters/vpu_video_decoder.cc
+new file mode 100644
+index 0000000..396d4f1
+--- /dev/null
++++ b/media/filters/vpu_video_decoder.cc
+@@ -0,0 +1,614 @@
++#include <list>
++#include <vector>
++#include <stddef.h>
++#include <stdint.h>
++#include <algorithm>
++#include <string>
++
++#include <string.h>
++
++#include "media/filters/vpu_video_decoder.h"
++
++#include "base/bind.h"
++#include "base/callback_helpers.h"
++#include "base/command_line.h"
++#include "base/location.h"
++#include "base/logging.h"
++#include "base/synchronization/lock.h"
++#include "base/message_loop/message_loop_proxy.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/sys_byteorder.h"
++#include "media/base/bind_to_loop.h"
++#include "media/base/decoder_buffer.h"
++#include "media/base/demuxer_stream.h"
++#include "media/base/media_switches.h"
++#include "media/base/pipeline.h"
++#include "media/base/video_decoder_config.h"
++#include "media/base/video_frame.h"
++#include "media/base/video_util.h"
++
++#include "media/filters/vpu_framebuffers.h"
++
++#include <vpu_wrapper.h>
++
++
++#define ALIGN_VAL_TO(LENGTH, ALIGN_SIZE)  ( ((uintptr_t)((LENGTH) + (ALIGN_SIZE) - 1) / (ALIGN_SIZE)) * (ALIGN_SIZE) )
++
++
++
++namespace media {
++
++
++namespace {
++
++
++char const *VpuStrerror(VpuDecRetCode const code) {
++  switch (code) {
++    case VPU_DEC_RET_SUCCESS: return "success";
++    case VPU_DEC_RET_FAILURE: return "failure";
++    case VPU_DEC_RET_INVALID_PARAM: return "invalid param";
++    case VPU_DEC_RET_INVALID_HANDLE: return "invalid handle";
++    case VPU_DEC_RET_INVALID_FRAME_BUFFER: return "invalid frame buffer";
++    case VPU_DEC_RET_INSUFFICIENT_FRAME_BUFFERS: return "insufficient frame buffers";
++    case VPU_DEC_RET_INVALID_STRIDE: return "invalid stride";
++    case VPU_DEC_RET_WRONG_CALL_SEQUENCE: return "wrong call sequence";
++    case VPU_DEC_RET_FAILURE_TIMEOUT: return "failure timeout";
++    default:
++      return NULL;
++  }
++}
++
++
++long inst_count = 0;
++base::Lock vpu_load_lock;
++
++
++void LoadDecoder() {
++  VpuDecRetCode ret;
++
++  base::AutoLock alock(vpu_load_lock);
++
++  if (inst_count == 0) {
++    ret = VPU_DecLoad();
++    if (ret != VPU_DEC_RET_SUCCESS) {
++      LOG(ERROR) << "VPU loading failed: " << VpuStrerror(ret);
++      return;
++    }
++
++  }
++
++  ++inst_count;
++
++  if (inst_count == 1) {
++    VpuVersionInfo version;
++    VpuWrapperVersionInfo wrapper_version;
++
++    ret = VPU_DecGetVersionInfo(&version);
++    if (ret != VPU_DEC_RET_SUCCESS) {
++      LOG(ERROR) << "Getting version info failed: " << VpuStrerror(ret);
++      return;
++    }
++
++    ret = VPU_DecGetWrapperVersionInfo(&wrapper_version);
++    if (ret != VPU_DEC_RET_SUCCESS) {
++      LOG(ERROR) << "Getting wrapper version info failed: " << VpuStrerror(ret);
++      return;
++    }
++
++    LOG(INFO) << "VPU Loaded";
++    LOG(INFO) << "VPU firmware version " << version.nFwMajor << "." << version.nFwMinor << "." << version.nFwRelease << "_r" << version.nFwCode;
++    LOG(INFO) << "VPU library version " << version.nLibMajor << "." << version.nLibMinor << "." << version.nLibRelease;
++    LOG(INFO) << "VPU wrapper version " << wrapper_version.nMajor << "." << wrapper_version.nMinor << "." << wrapper_version.nRelease << " " << wrapper_version.pBinary;
++  }
++}
++
++
++void UnloadDecoder() {
++  base::AutoLock alock(vpu_load_lock);
++
++  if (inst_count == 0)
++    return;
++
++  --inst_count;
++
++  if (inst_count == 0)
++    VPU_DecUnLoad();
++}
++
++
++}
++
++
++struct VpuVideoDecoder::Internal
++{
++  typedef std::vector < uint8_t > VirtMemBlock;
++  typedef std::list < VirtMemBlock > VirtMemBlocks;
++
++  typedef std::list < VpuMemDesc > PhysMemBlocks;
++
++  VpuDecHandle handle;
++
++  VpuDecInitInfo init_info;
++  VpuMemInfo mem_info;
++
++  bool vpu_opened;
++
++  VirtMemBlocks virt_mem_blocks;
++  PhysMemBlocks phys_mem_blocks;
++
++  VPUFramebuffers framebuffers;
++
++  Internal()
++    : vpu_opened(false)
++  {
++  }
++
++  ~Internal()
++  {
++    FreeMemBlocks();
++  }
++
++  bool AllocMemBlocks()
++  {
++    VpuDecRetCode ret;
++
++    memset(&mem_info, 0, sizeof(VpuMemInfo));
++    ret = VPU_DecQueryMem(&mem_info);
++    if (ret != VPU_DEC_RET_SUCCESS) {
++      LOG(ERROR) << "Could not get VPU memory information: " << VpuStrerror(ret);
++      return false;
++    }
++
++    for (int i = 0; i < mem_info.nSubBlockNum; ++i)
++    {
++      int size = mem_info.MemSubBlock[i].nAlignment + mem_info.MemSubBlock[i].nSize;
++
++      LOG(INFO) << "Sub block " << i << "  type: " << ((mem_info.MemSubBlock[i].MemType == VPU_MEM_VIRT) ? "virtual" : "phys") << "  size: " << size;
++
++      if (mem_info.MemSubBlock[i].MemType == VPU_MEM_VIRT)
++      {
++        unsigned char *virt_ptr;
++        virt_mem_blocks.push_back(VirtMemBlock());
++        VirtMemBlock &blk = virt_mem_blocks.back();
++        blk.resize(size);
++        virt_ptr = reinterpret_cast < unsigned char* > (&blk[0]);
++
++        mem_info.MemSubBlock[i].pVirtAddr = (unsigned char *)ALIGN_VAL_TO(virt_ptr, mem_info.MemSubBlock[i].nAlignment);
++      }
++      else if (mem_info.MemSubBlock[i].MemType == VPU_MEM_PHY)
++      {
++        VpuMemDesc mem_desc;
++        memset(&mem_desc, 0, sizeof(VpuMemDesc));
++        mem_desc.nSize = size;
++        if (VPU_DecGetMem(&mem_desc) != VPU_DEC_RET_SUCCESS) {
++          LOG(ERROR) << "Unable to allocate " << size << " bytes of physical memory";
++          return false;
++        }
++
++        phys_mem_blocks.push_back(mem_desc);
++
++        mem_info.MemSubBlock[i].pVirtAddr = (unsigned char *)ALIGN_VAL_TO((unsigned char*)(mem_desc.nVirtAddr), mem_info.MemSubBlock[i].nAlignment);
++        mem_info.MemSubBlock[i].pPhyAddr = (unsigned char *)ALIGN_VAL_TO((unsigned char*)(mem_desc.nPhyAddr), mem_info.MemSubBlock[i].nAlignment);
++      }
++      else
++        LOG(WARNING) << "Sub block " << i << " type is unknown - skipping";
++    }
++
++    LOG(INFO) << "VPU memory blocks allocated";
++
++    return true;
++  }
++
++  void FreeMemBlocks()
++  {
++    LOG(INFO) << "Freeing VPU memory blocks";
++
++    for (PhysMemBlocks::iterator iter = phys_mem_blocks.begin(); iter != phys_mem_blocks.end(); ++iter)
++      VPU_DecFreeMem(&(*iter));
++  }
++};
++
++
++
++void CopyVpuFramebufferTo(VpuFrameBuffer *framebuffer, scoped_refptr<VideoFrame>* video_frame, VpuDecInitInfo &init_info, const VideoDecoderConfig& config);
++
++
++
++
++VpuVideoDecoder::VpuVideoDecoder(
++    const scoped_refptr<base::MessageLoopProxy>& message_loop)
++    : message_loop_(message_loop),
++      weak_factory_(this),
++      state_(kUninitialized) {
++    LoadDecoder();
++    internal = new Internal;
++}
++
++VpuVideoDecoder::~VpuVideoDecoder() {
++  DCHECK_EQ(kUninitialized, state_);
++  CloseDecoder();
++  delete internal;
++  UnloadDecoder();
++}
++
++void VpuVideoDecoder::Initialize(const VideoDecoderConfig& config,
++                                 const PipelineStatusCB& status_cb) {
++  DCHECK(message_loop_->BelongsToCurrentThread());
++  DCHECK(config.IsValidConfig());
++  DCHECK(!config.is_encrypted());
++  DCHECK(decode_cb_.is_null());
++  DCHECK(reset_cb_.is_null());
++
++  weak_this_ = weak_factory_.GetWeakPtr();
++
++  if (!internal->AllocMemBlocks()) {
++    status_cb.Run(PIPELINE_ERROR_INITIALIZATION_FAILED);
++    return;
++  }
++
++  if (!ConfigureDecoder(config)) {
++    status_cb.Run(DECODER_ERROR_NOT_SUPPORTED);
++    return;
++  }
++
++  // Success!
++  LOG(INFO) << "VPU decoder initialization succeeded";
++  config_ = config;
++  state_ = kNormal;
++  status_cb.Run(PIPELINE_OK);
++}
++
++bool VpuVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config) {
++  bool can_handle = false;
++
++  if ((config.format() == VideoFrame::YV12) || (config.format() == VideoFrame::YV12A) || (config.format() == VideoFrame::I420)) {
++    switch (config.codec()) {
++      case kCodecH264:
++      case kCodecVC1:
++      case kCodecMPEG2:
++      case kCodecMPEG4:
++      case kCodecVP8:
++        can_handle = true;
++      default:
++        break;
++    }
++  }
++
++  if (!can_handle) {
++    LOG(INFO) << "Cannot handle video config: " << config.AsHumanReadableString();
++    return false;
++  }
++
++  CloseDecoder();
++  return OpenDecoder(config);
++}
++
++bool VpuVideoDecoder::OpenDecoder(const VideoDecoderConfig& config) {
++  if (internal->vpu_opened)
++    return true;
++
++  VpuDecOpenParam open_param;
++  VpuDecRetCode ret;
++
++  memset(&open_param, 0, sizeof(open_param));
++
++  switch (config.codec())
++  {
++    case kCodecH264:
++      open_param.CodecFormat = VPU_V_AVC;
++      open_param.nReorderEnable = 1;
++      LOG(INFO) << "Setting h.264 as stream format";
++      break;
++    case kCodecVC1:
++      open_param.CodecFormat = VPU_V_VC1_AP;
++      LOG(INFO) << "Setting VC1 as stream format";
++      break;
++    case kCodecMPEG2:
++      open_param.CodecFormat = VPU_V_MPEG2;
++      LOG(INFO) << "Setting MPEG-2 as stream format";
++      break;
++    case kCodecMPEG4:
++      open_param.CodecFormat = VPU_V_MPEG4;
++      LOG(INFO) << "Setting MPEG-4 as stream format";
++      break;
++    case kCodecVP8:
++      open_param.CodecFormat = VPU_V_VP8;
++      LOG(INFO) << "Setting VP8 as stream format";
++      break;
++    default:
++      LOG(ERROR) << "Could not set unknown stream format";
++      break;
++  }
++
++  open_param.nChromaInterleave = 0;
++  open_param.nMapType = 0;
++  open_param.nTiled2LinearEnable = 0;
++  open_param.nEnableFileMode = 0;
++  open_param.nPicWidth = config.coded_size().width();
++  open_param.nPicHeight = config.coded_size().height();
++
++  ret = VPU_DecOpen(&(internal->handle), &open_param, &(internal->mem_info));
++  if (ret != VPU_DEC_RET_SUCCESS) {
++    LOG(ERROR) << "Opening new VPU handle failed: " << VpuStrerror(ret);
++    return false;
++  }
++
++  int config_param;
++
++  config_param = VPU_DEC_SKIPNONE;
++  ret = VPU_DecConfig(internal->handle, VPU_DEC_CONF_SKIPMODE, &config_param);
++  if (ret != VPU_DEC_RET_SUCCESS) {
++    LOG(ERROR) << "Could not configure skip mode: " << VpuStrerror(ret);
++    return false;
++  }
++
++  config_param = 0;
++  ret = VPU_DecConfig(internal->handle, VPU_DEC_CONF_BUFDELAY, &config_param);
++  if (ret != VPU_DEC_RET_SUCCESS) {
++    LOG(ERROR) << "Could not configure buffer delay: " << VpuStrerror(ret);
++    return false;
++  }
++
++  config_param = VPU_DEC_IN_NORMAL;
++  ret = VPU_DecConfig(internal->handle, VPU_DEC_CONF_INPUTTYPE, &config_param);
++  if (ret != VPU_DEC_RET_SUCCESS) {
++    LOG(ERROR) << "Could not configure input type: " << VpuStrerror(ret);
++    return false;
++  }
++
++  internal->vpu_opened = true;
++
++  return true;
++}
++
++void VpuVideoDecoder::CloseDecoder() {
++  VpuDecRetCode ret;
++
++  if (!(internal->vpu_opened))
++    return;
++
++  ret = VPU_DecFlushAll(internal->handle);
++  if (ret != VPU_DEC_RET_SUCCESS)
++    LOG(ERROR) << "Flushing decoder failed: " << VpuStrerror(ret);
++  VPU_DecClose(internal->handle);
++  if (ret != VPU_DEC_RET_SUCCESS)
++    LOG(ERROR) << "Closing decoder failed: " << VpuStrerror(ret);
++
++  internal->vpu_opened = false;
++}
++
++void VpuVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
++                             const DecodeCB& decode_cb) {
++  DCHECK(message_loop_->BelongsToCurrentThread());
++  DCHECK(!decode_cb.is_null());
++  CHECK_NE(state_, kUninitialized);
++  CHECK(decode_cb_.is_null()) << "Overlapping decodes are not supported.";
++
++  decode_cb_ = BindToCurrentLoop(decode_cb);
++
++  if (state_ == kError) {
++    base::ResetAndReturn(&decode_cb_).Run(kDecodeError, NULL);
++    return;
++  }
++
++  // Return empty frames if decoding has finished.
++  if (state_ == kDecodeFinished) {
++    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEmptyFrame());
++    return;
++  }
++
++  DecodeBuffer(buffer);
++}
++
++void VpuVideoDecoder::Reset(const base::Closure& closure) {
++  DCHECK(message_loop_->BelongsToCurrentThread());
++  DCHECK(reset_cb_.is_null());
++  reset_cb_ = BindToCurrentLoop(closure);
++
++  // Defer the reset if a decode is pending.
++  if (!decode_cb_.is_null())
++    return;
++
++  DoReset();
++}
++
++void VpuVideoDecoder::Stop(const base::Closure& closure) {
++  DCHECK(message_loop_->BelongsToCurrentThread());
++  base::ScopedClosureRunner runner(BindToCurrentLoop(closure));
++
++  if (state_ == kUninitialized)
++    return;
++
++  if (!decode_cb_.is_null()) {
++    base::ResetAndReturn(&decode_cb_).Run(kOk, NULL);
++    // Reset is pending only when decode is pending.
++    if (!reset_cb_.is_null())
++      base::ResetAndReturn(&reset_cb_).Run();
++  }
++
++  state_ = kUninitialized;
++}
++
++bool VpuVideoDecoder::HasAlpha() const {
++  return false;
++}
++
++void VpuVideoDecoder::DecodeBuffer(const scoped_refptr<DecoderBuffer>& buffer) {
++  DCHECK(message_loop_->BelongsToCurrentThread());
++  DCHECK_NE(state_, kUninitialized);
++  DCHECK_NE(state_, kDecodeFinished);
++  DCHECK_NE(state_, kError);
++  DCHECK(reset_cb_.is_null());
++  DCHECK(!decode_cb_.is_null());
++  DCHECK(buffer);
++
++  // Transition to kDecodeFinished on the first end of stream buffer.
++  if (state_ == kNormal && buffer->end_of_stream()) {
++    state_ = kDecodeFinished;
++    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEmptyFrame());
++    return;
++  }
++
++  scoped_refptr<VideoFrame> video_frame;
++  if (!VpuDecode(buffer, &video_frame)) {
++    state_ = kError;
++    base::ResetAndReturn(&decode_cb_).Run(kDecodeError, NULL);
++    return;
++  }
++
++  // If we didn't get a frame we need more data.
++  if (!video_frame.get()) {
++    base::ResetAndReturn(&decode_cb_).Run(kNotEnoughData, NULL);
++    return;
++  }
++
++  base::ResetAndReturn(&decode_cb_).Run(kOk, video_frame);
++}
++
++bool VpuVideoDecoder::VpuDecode(const scoped_refptr<DecoderBuffer>& buffer,
++                                scoped_refptr<VideoFrame>* video_frame) {
++  DCHECK(video_frame);
++  DCHECK(!buffer->end_of_stream());
++
++  int buffer_ret_code;
++  VpuBufferNode in_data;
++  VpuDecRetCode ret;
++
++  memset(&in_data, 0, sizeof(in_data));
++  in_data.pVirAddr = (unsigned char *)(buffer->data());
++  in_data.nSize = buffer->data_size();
++
++  ret = VPU_DecDecodeBuf(internal->handle, &in_data, &buffer_ret_code);
++  if (ret != VPU_DEC_RET_SUCCESS) {
++    LOG(ERROR) << "Failed to decode frame: " << VpuStrerror(ret);
++    return false;
++  }
++
++  VLOG(1) << "VPU_DecDecodeBuf buffer ret code is 0x" << std::hex << buffer_ret_code << std::dec;
++
++  if (buffer_ret_code & VPU_DEC_INIT_OK) {
++    ret = VPU_DecGetInitialInfo(internal->handle, &(internal->init_info));
++    if (ret != VPU_DEC_RET_SUCCESS) {
++      LOG(ERROR) << "Could not get init info: " << VpuStrerror(ret);
++      return false;
++    }
++    internal->framebuffers.init(internal->handle, internal->init_info);
++  }
++
++  if (buffer_ret_code & VPU_DEC_FLUSH) {
++    ret = VPU_DecFlushAll(internal->handle);
++    if (ret != VPU_DEC_RET_SUCCESS) {
++      LOG(ERROR) << "Flushing VPU failed: " << VpuStrerror(ret);
++      return false;
++    }
++
++    *video_frame = NULL;
++
++    return true;
++  }
++
++  if (buffer_ret_code & VPU_DEC_NO_ENOUGH_INBUF) {
++    LOG(INFO) << "Need more input";
++    return true;
++  }
++
++  if (buffer_ret_code & VPU_DEC_ONE_FRM_CONSUMED) {
++    VpuDecFrameLengthInfo dec_framelen_info;
++
++    ret = VPU_DecGetConsumedFrameInfo(internal->handle, &dec_framelen_info);
++    if (ret != VPU_DEC_RET_SUCCESS) {
++      LOG(ERROR) << "Could not get information about consumed frame: " << VpuStrerror(ret);
++    } else {
++      LOG(INFO) << "One frame got consumed:"
++        << "  framebuffer addr: 0x" << std::hex << uintptr_t(dec_framelen_info.pFrame) << std::dec
++        << "  stuff length: " << dec_framelen_info.nStuffLength
++        << "  frame length: " << dec_framelen_info.nFrameLength
++        ;
++    }
++  }
++
++  if (buffer_ret_code & VPU_DEC_OUTPUT_DIS) {
++    VpuDecOutFrameInfo out_frame_info;
++    int64 timestamp = buffer->timestamp().InMicroseconds();
++
++    ret = VPU_DecGetOutputFrame(internal->handle, &out_frame_info);
++    if (ret != VPU_DEC_RET_SUCCESS) {
++      LOG(ERROR) << "Could not get decoded output frame: " << VpuStrerror(ret);
++      return false;
++    }
++
++    LOG(INFO) << "Output frame:"
++      << "  pic width: " << internal->init_info.nPicWidth
++      << "  pic height: " << internal->init_info.nPicHeight
++      << "  pic type: " << out_frame_info.ePicType
++      << "  Y stride: " << out_frame_info.pDisplayFrameBuf->nStrideY
++      << "  CbCr stride: " << out_frame_info.pDisplayFrameBuf->nStrideC
++      ;
++
++    CopyVpuFramebufferTo(out_frame_info.pDisplayFrameBuf, video_frame, internal->init_info, config_);
++    (*video_frame)->SetTimestamp(base::TimeDelta::FromMicroseconds(timestamp));  
++
++    ret = VPU_DecOutFrameDisplayed(internal->handle, out_frame_info.pDisplayFrameBuf);
++    if (ret != VPU_DEC_RET_SUCCESS)
++      LOG(ERROR) << "Clearing display framebuffer failed: " << VpuStrerror(ret);
++  }
++  else
++    *video_frame = NULL;
++
++  return true;
++}
++
++void VpuVideoDecoder::DoReset() {
++  DCHECK(decode_cb_.is_null());
++
++  state_ = kNormal;
++  reset_cb_.Run();
++  reset_cb_.Reset();
++}
++
++void CopyVpuFramebufferTo(VpuFrameBuffer *framebuffer, scoped_refptr<VideoFrame>* video_frame, VpuDecInitInfo &init_info, const VideoDecoderConfig& config) {
++  CHECK(framebuffer);
++
++  gfx::Size size(init_info.nPicWidth, init_info.nPicHeight);
++
++  *video_frame = VideoFrame::CreateFrame(
++      config.format(),
++      size,
++      gfx::Rect(size),
++      config.natural_size(),
++      kNoTimestamp());
++
++  CopyYPlane(framebuffer->pbufVirtY,
++             framebuffer->nStrideY,
++             init_info.nPicHeight,
++             video_frame->get());
++  if (config.format() == VideoFrame::I420) {
++    CopyUPlane(framebuffer->pbufVirtCb,
++               framebuffer->nStrideC,
++               init_info.nPicHeight / 2,
++               video_frame->get());
++    CopyVPlane(framebuffer->pbufVirtCr,
++               framebuffer->nStrideC,
++               init_info.nPicHeight / 2,
++               video_frame->get());
++  } else { /* YV12 and YV12A */
++    /* U and V swapped */
++    CopyUPlane(framebuffer->pbufVirtCb,
++               framebuffer->nStrideC,
++               init_info.nPicHeight / 2,
++               video_frame->get());
++    CopyVPlane(framebuffer->pbufVirtCr,
++               framebuffer->nStrideC,
++               init_info.nPicHeight / 2,
++               video_frame->get());
++
++    if (config.format() == VideoFrame::YV12A) {
++      MakeOpaqueAPlane(framebuffer->nStrideY,
++                       init_info.nPicHeight,
++                       video_frame->get()); 
++    }
++  }
++}
++
++
++}  // namespace media
+diff --git a/media/filters/vpu_video_decoder.h b/media/filters/vpu_video_decoder.h
+new file mode 100644
+index 0000000..d7016aa
+--- /dev/null
++++ b/media/filters/vpu_video_decoder.h
+@@ -0,0 +1,74 @@
++#ifndef MEDIA_FILTERS_VPU_VIDEO_DECODER_H_
++#define MEDIA_FILTERS_VPU_VIDEO_DECODER_H_
++
++#include "base/callback.h"
++#include "base/memory/weak_ptr.h"
++#include "media/base/demuxer_stream.h"
++#include "media/base/video_decoder.h"
++#include "media/base/video_decoder_config.h"
++#include "media/base/video_frame.h"
++
++namespace base {
++class MessageLoopProxy;
++}
++
++namespace media {
++
++class MEDIA_EXPORT VpuVideoDecoder : public VideoDecoder {
++ public:
++  explicit VpuVideoDecoder(
++      const scoped_refptr<base::MessageLoopProxy>& message_loop);
++  virtual ~VpuVideoDecoder();
++
++  // VideoDecoder implementation.
++  virtual void Initialize(const VideoDecoderConfig& config,
++                          const PipelineStatusCB& status_cb) OVERRIDE;
++  virtual void Decode(const scoped_refptr<DecoderBuffer>& buffer,
++                      const DecodeCB& decode_cb) OVERRIDE;
++  virtual void Reset(const base::Closure& closure) OVERRIDE;
++  virtual void Stop(const base::Closure& closure) OVERRIDE;
++  virtual bool HasAlpha() const OVERRIDE;
++
++ private:
++  enum DecoderState {
++    kUninitialized,
++    kNormal,
++    kFlushCodec,
++    kDecodeFinished,
++    kError
++  };
++
++  // Handles (re-)initializing the decoder with a (new) config.
++  // Returns true when initialization was successful.
++  bool ConfigureDecoder(const VideoDecoderConfig& config);
++
++  bool OpenDecoder(const VideoDecoderConfig& config);
++  void CloseDecoder();
++
++  void DecodeBuffer(const scoped_refptr<DecoderBuffer>& buffer);
++  bool VpuDecode(const scoped_refptr<DecoderBuffer>& buffer,
++                 scoped_refptr<VideoFrame>* video_frame);
++
++  // Reset decoder and call |reset_cb_|.
++  void DoReset();
++
++  scoped_refptr<base::MessageLoopProxy> message_loop_;
++  base::WeakPtrFactory<VpuVideoDecoder> weak_factory_;
++  base::WeakPtr<VpuVideoDecoder> weak_this_;
++
++  DecoderState state_;
++
++  DecodeCB decode_cb_;
++  base::Closure reset_cb_;
++
++  VideoDecoderConfig config_;
++
++  struct Internal;
++  Internal *internal;
++
++  DISALLOW_COPY_AND_ASSIGN(VpuVideoDecoder);
++};
++
++}  // namespace media
++
++#endif  // MEDIA_FILTERS_VPU_VIDEO_DECODER_H_
+diff --git a/media/media.gyp b/media/media.gyp
+index 4782741..ec53626 100644
+--- a/media/media.gyp
++++ b/media/media.gyp
+@@ -11,6 +11,7 @@
+     # (DT_NEEDED) instead of using dlopen. This helps with automated
+     # detection of ABI mismatches and prevents silent errors.
+     'linux_link_pulseaudio%': 0,
++    'media_use_imxvpu%': 1,
+     'conditions': [
+       ['OS=="android"', {
+         # Android doesn't use ffmpeg.
+@@ -404,6 +405,10 @@
+         'filters/video_frame_painter.h',
+         'filters/video_renderer_impl.cc',
+         'filters/video_renderer_impl.h',
++        'filters/vpu_framebuffers.cc',
++        'filters/vpu_framebuffers.h',
++        'filters/vpu_video_decoder.cc',
++        'filters/vpu_video_decoder.h',
+         'filters/vpx_video_decoder.cc',
+         'filters/vpx_video_decoder.h',
+         'filters/webvtt_util.h',
+@@ -658,6 +663,29 @@
+                 'DISABLE_USER_INPUT_MONITOR',
+               ],
+             }],
++            ['media_use_imxvpu==1', {
++              'cflags': [
++                '<!@(<(pkg-config) --cflags libfslvpuwrap)',
++              ],
++              'link_settings': {
++                'libraries': [
++                  '<!@(<(pkg-config) --libs libfslvpuwrap)',
++                ],
++              },
++            }, {  # media_use_imxvpu==0
++              'direct_dependent_settings': {
++                'defines': [
++                  'MEDIA_DISABLE_IMXVPU',
++                ],
++              },
++              # Exclude the VPU sources.
++              'sources!': [
++                'filters/vpu_framebuffers.cc',
++                'filters/vpu_framebuffers.h',
++                'filters/vpu_video_decoder.cc',
++                'filters/vpu_video_decoder.h',
++              ],
++            }],
+             ['use_cras==1', {
+               'cflags': [
+                 '<!@(<(pkg-config) --cflags libcras)',
+-- 
+1.8.3.2
+
+
+From 2021a8bfc4cd525f6f5dc070edfd6615f754ab4e Mon Sep 17 00:00:00 2001
+From: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+Date: Fri, 28 Mar 2014 14:06:40 -0700
+Subject: [PATCH 2/2] Added-hardware-accelerated-decoding-with-the-i.MX-VP
+
+Signed-off-by: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+---
+ media/filters/vpu_video_decoder.cc | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/media/filters/vpu_video_decoder.cc b/media/filters/vpu_video_decoder.cc
+index 396d4f1..9024484 100644
+--- a/media/filters/vpu_video_decoder.cc
++++ b/media/filters/vpu_video_decoder.cc
+@@ -18,7 +18,7 @@
+ #include "base/message_loop/message_loop_proxy.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/sys_byteorder.h"
+-#include "media/base/bind_to_loop.h"
++#include "media/base/bind_to_current_loop.h"
+ #include "media/base/decoder_buffer.h"
+ #include "media/base/demuxer_stream.h"
+ #include "media/base/media_switches.h"
+@@ -393,7 +393,7 @@ void VpuVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
+ 
+   // Return empty frames if decoding has finished.
+   if (state_ == kDecodeFinished) {
+-    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEmptyFrame());
++    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEOSFrame());
+     return;
+   }
+ 
+@@ -445,7 +445,7 @@ void VpuVideoDecoder::DecodeBuffer(const scoped_refptr<DecoderBuffer>& buffer) {
+   // Transition to kDecodeFinished on the first end of stream buffer.
+   if (state_ == kNormal && buffer->end_of_stream()) {
+     state_ = kDecodeFinished;
+-    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEmptyFrame());
++    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEOSFrame());
+     return;
+   }
+ 
+-- 
+1.8.3.2
+

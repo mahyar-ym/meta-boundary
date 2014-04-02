@@ -1,0 +1,30 @@
+From 03924737a9378db934da9355bb38c916b5e3fa45 Mon Sep 17 00:00:00 2001
+From: Eric Nelson <eric.nelson@boundarydevices.com>
+Date: Sun, 23 Mar 2014 07:10:36 -0700
+Subject: [PATCH 1/2] Modified gl.gyp to link libEGL and libGAL at build time
+
+Signed-off-by: Eric Nelson <eric.nelson@boundarydevices.com>
+---
+ ui/gl/gl.gyp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/ui/gl/gl.gyp b/ui/gl/gl.gyp
+index 2ec6d76..f7ee1a4 100644
+--- a/ui/gl/gl.gyp
++++ b/ui/gl/gl.gyp
+@@ -123,6 +123,12 @@
+         '<(gl_binding_output_dir)/gl_bindings_autogen_osmesa.cc',
+         '<(gl_binding_output_dir)/gl_bindings_autogen_osmesa.h',
+       ],
++      'link_settings': {
++        'libraries': [
++          '-lEGL',
++          '-lGAL',
++        ],
++      },
+       # hard_dependency is necessary for this target because it has actions
+       # that generate header files included by dependent targets. The header
+       # files must be generated before the dependents are compiled. The usual
+-- 
+1.8.3.2
+
