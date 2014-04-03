@@ -1,7 +1,7 @@
 DESCRIPTION = "A console-only image that includes gstreamer, openssh, node, \
 and Chromium web browser. It boots up automatically to the browser. "
 
-IMAGE_FEATURES += "ssh-server-openssh"
+IMAGE_FEATURES += "ssh-server-openssh x11-base"
 
 LICENSE = "BSD"
 
