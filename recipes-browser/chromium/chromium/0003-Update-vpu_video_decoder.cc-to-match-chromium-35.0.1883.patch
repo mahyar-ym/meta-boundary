@@ -1,0 +1,44 @@
+From f059d6501b17ab8aed618f53f7e4255cf8d8326b Mon Sep 17 00:00:00 2001
+From: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+Date: Fri, 28 Mar 2014 14:06:40 -0700
+Subject: [PATCH 3/3] Update vpu_video_decoder.cc to match chromium-35.0.1883
+
+Signed-off-by: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+---
+ media/filters/vpu_video_decoder.cc | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/media/filters/vpu_video_decoder.cc b/media/filters/vpu_video_decoder.cc
+index 396d4f1..9024484 100644
+--- a/media/filters/vpu_video_decoder.cc
++++ b/media/filters/vpu_video_decoder.cc
+@@ -18,7 +18,7 @@
+ #include "base/message_loop/message_loop_proxy.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/sys_byteorder.h"
+-#include "media/base/bind_to_loop.h"
++#include "media/base/bind_to_current_loop.h"
+ #include "media/base/decoder_buffer.h"
+ #include "media/base/demuxer_stream.h"
+ #include "media/base/media_switches.h"
+@@ -393,7 +393,7 @@ void VpuVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
+ 
+   // Return empty frames if decoding has finished.
+   if (state_ == kDecodeFinished) {
+-    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEmptyFrame());
++    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEOSFrame());
+     return;
+   }
+ 
+@@ -445,7 +445,7 @@ void VpuVideoDecoder::DecodeBuffer(const scoped_refptr<DecoderBuffer>& buffer) {
+   // Transition to kDecodeFinished on the first end of stream buffer.
+   if (state_ == kNormal && buffer->end_of_stream()) {
+     state_ = kDecodeFinished;
+-    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEmptyFrame());
++    base::ResetAndReturn(&decode_cb_).Run(kOk, VideoFrame::CreateEOSFrame());
+     return;
+   }
+ 
+-- 
+1.8.3.2
+
