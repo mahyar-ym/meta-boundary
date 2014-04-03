@@ -1,5 +1,7 @@
-DESCRIPTION = "A console-only image that includes gstreamer, qt5, node, \
+DESCRIPTION = "A console-only image that includes gstreamer, openssh, node, \
 and Chromium web browser. It boots up automatically to the browser. "
+
+IMAGE_FEATURES += "ssh-server-openssh"
 
 LICENSE = "BSD"
 
@@ -9,6 +11,5 @@ IMAGE_INSTALL += " \
     gstreamer \
     nodejs4 \
     chromium \
-    qtbase \
 "
 
