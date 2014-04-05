@@ -12,4 +12,3 @@ IMAGE_INSTALL += " \
     nodejs4 \
     chromium \
 "
-
