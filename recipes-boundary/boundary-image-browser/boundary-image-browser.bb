@@ -13,4 +13,5 @@ IMAGE_INSTALL += " \
     chromium \
     packagegroup-core-x11-xserver \
     packagegroup-core-x11-utils \
+    chrome-launch \
 "
