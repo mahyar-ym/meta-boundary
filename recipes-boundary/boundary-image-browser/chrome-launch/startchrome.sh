@@ -1,2 +1,2 @@
 !#/bin/sh
-export DISPLAY=:0.0 && xinit /usr/bin/chrome/chrome --no-sandbox --user-data-dir --kiosk &
+export CHROME_DEVEL_SANDBOX=/usr/sbin/chrome-devel-sandbox && export DISPLAY=:0.0 && xinit /usr/bin/chrome/chrome --user-data-dir --kiosk &
