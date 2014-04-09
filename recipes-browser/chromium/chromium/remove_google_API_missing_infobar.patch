@@ -1,0 +1,24 @@
+From f1663a1aae9804331a212d54a59c7151c5166aed Mon Sep 17 00:00:00 2001
+From: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+Date: Wed, 9 Apr 2014 10:19:15 -0700
+Subject: [PATCH] remove_google_API_missing_infobar
+
+---
+ chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc b/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
+index 5014219..1c3f9d3 100644
+--- a/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
++++ b/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
+@@ -15,7 +15,6 @@
+ 
+ // static
+ void GoogleApiKeysInfoBarDelegate::Create(InfoBarService* infobar_service) {
+-  if (google_apis::HasKeysConfigured())
+     return;
+ 
+   infobar_service->AddInfoBar(ConfirmInfoBarDelegate::CreateInfoBar(
+-- 
+1.8.3.2
+
