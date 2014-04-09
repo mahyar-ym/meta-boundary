@@ -1,0 +1,48 @@
+From 8093562b5e0a1e8477712d1a6851551b015216b3 Mon Sep 17 00:00:00 2001
+From: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+Date: Tue, 8 Apr 2014 17:58:55 -0700
+Subject: [PATCH] remove Learn-more
+
+---
+ .../browser/ui/startup/google_api_keys_infobar_delegate.cc | 14 --------------
+ .../browser/ui/startup/google_api_keys_infobar_delegate.h  |  2 --
+ 2 files changed, 16 deletions(-)
+
+diff --git a/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc b/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
+index 5014219..784e30d 100644
+--- a/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
++++ b/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
+@@ -36,17 +36,3 @@ base::string16 GoogleApiKeysInfoBarDelegate::GetMessageText() const {
+ int GoogleApiKeysInfoBarDelegate::GetButtons() const {
+   return BUTTON_NONE;
+ }
+-
+-base::string16 GoogleApiKeysInfoBarDelegate::GetLinkText() const {
+-  return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
+-}
+-
+-bool GoogleApiKeysInfoBarDelegate::LinkClicked(
+-    WindowOpenDisposition disposition) {
+-  web_contents()->OpenURL(content::OpenURLParams(
+-      GURL("http://www.chromium.org/developers/how-tos/api-keys"),
+-      content::Referrer(),
+-      (disposition == CURRENT_TAB) ? NEW_FOREGROUND_TAB : disposition,
+-      content::PAGE_TRANSITION_LINK, false));
+-  return false;
+-}
+diff --git a/chrome/browser/ui/startup/google_api_keys_infobar_delegate.h b/chrome/browser/ui/startup/google_api_keys_infobar_delegate.h
+index 23bfb1e..b933315 100644
+--- a/chrome/browser/ui/startup/google_api_keys_infobar_delegate.h
++++ b/chrome/browser/ui/startup/google_api_keys_infobar_delegate.h
+@@ -25,8 +25,6 @@ class GoogleApiKeysInfoBarDelegate : public ConfirmInfoBarDelegate {
+ 
+   virtual base::string16 GetMessageText() const OVERRIDE;
+   virtual int GetButtons() const OVERRIDE;
+-  virtual base::string16 GetLinkText() const OVERRIDE;
+-  virtual bool LinkClicked(WindowOpenDisposition disposition) OVERRIDE;
+ 
+   DISALLOW_COPY_AND_ASSIGN(GoogleApiKeysInfoBarDelegate);
+ };
+-- 
+1.8.3.2
+
