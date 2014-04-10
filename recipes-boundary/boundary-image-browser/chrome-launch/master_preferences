@@ -1,6 +1,19 @@
 {
   "distribution" : {
     "suppress_first_run_bubble": true
-  }
+  },
+  "browser": {
+    "window_placement": {
+        "bottom": 768,
+        "left": 0,
+        "maximized": false,
+        "right": 1024,
+        "top": 0,
+        "work_area_bottom": 768,
+        "work_area_left": 0,
+        "work_area_right": 1024,
+        "work_area_top": 0
+      }
+   }
 }
 
