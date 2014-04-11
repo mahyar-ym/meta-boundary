@@ -8,6 +8,7 @@ LICENSE = "BSD"
 inherit core-image
 
 IMAGE_INSTALL += " \
+    gst-fsl-plugin \
     gstreamer \
     nodejs4 \
     chromium \
