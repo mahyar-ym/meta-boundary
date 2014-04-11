@@ -4,11 +4,11 @@
   },
   "browser": {
     "window_placement": {
-        "bottom": 768,
-        "left": 0,
+        "bottom": 764,
+        "left": 4,
         "maximized": false,
-        "right": 1024,
-        "top": 0,
+        "right": 1020,
+        "top": 4,
         "work_area_bottom": 768,
         "work_area_left": 0,
         "work_area_right": 1024,
