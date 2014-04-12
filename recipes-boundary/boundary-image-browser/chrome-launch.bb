@@ -2,7 +2,7 @@ DESCRIPTION = "Installing necessary files to launch Chromium automatically"
 LICENSE = "GPL-1.0"
 LIC_FILES_CHKSUM = "file://${COREBASE}/meta/files/common-licenses/GPL-1.0;md5=e9e36a9de734199567a4d769498f743d"
 PR = "r0"
-PV = "2"
+PV = "1"
 
 SRC_URI = "file://10xstartchrome.sh \
 	   file://master_preferences "
