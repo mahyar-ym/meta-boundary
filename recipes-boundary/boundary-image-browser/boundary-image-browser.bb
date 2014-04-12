@@ -4,11 +4,11 @@ and Chromium web browser. It boots up automatically to the browser. "
 IMAGE_FEATURES += "ssh-server-openssh splash"
 
 LICENSE = "BSD"
+DEPENDS_append_mx6 = " imx-lib imx-vpu libfslvpuwrap"
 
 inherit core-image
 
 IMAGE_INSTALL += " \
-    gst-fsl-plugin \
     gstreamer \
     nodejs4 \
     chromium \
