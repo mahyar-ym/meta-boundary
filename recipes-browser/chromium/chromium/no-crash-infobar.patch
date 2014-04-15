@@ -1,0 +1,25 @@
+From 8125cdd1016a381297882f7fa939059dbdf73d39 Mon Sep 17 00:00:00 2001
+From: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+Date: Tue, 15 Apr 2014 10:40:03 -0700
+Subject: [PATCH] no-crash-infobar
+
+Signed-off-by: Mahyar Yaghmaee <mahyar@boundarydevices.com>
+---
+ chrome/browser/ui/startup/session_crashed_infobar_delegate.cc | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/chrome/browser/ui/startup/session_crashed_infobar_delegate.cc b/chrome/browser/ui/startup/session_crashed_infobar_delegate.cc
+index 8d3ffa9..9e0f4c5 100644
+--- a/chrome/browser/ui/startup/session_crashed_infobar_delegate.cc
++++ b/chrome/browser/ui/startup/session_crashed_infobar_delegate.cc
+@@ -26,6 +26,7 @@ void SessionCrashedInfoBarDelegate::Create(Browser* browser) {
+   // incognito so that we have nothing to restore from.
+   // Also, in ChromeBot tests, there might be a race.  This code appears to be
+   // called during shutdown when there is no active WebContents.
++  return;
+   Profile* profile = browser->profile();
+   content::WebContents* web_contents =
+       browser->tab_strip_model()->GetActiveWebContents();
+-- 
+1.8.3.2
+

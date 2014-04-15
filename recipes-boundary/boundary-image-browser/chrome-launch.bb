@@ -5,9 +5,15 @@ PR = "r0"
 PV = "1"
 
 SRC_URI = "file://10xstartchrome.sh \
-	   file://master_preferences "
+	   file://master_preferences \
+	   file://delete-chromecache.sh "
 
 S = "${WORKDIR}"
+
+inherit update-rc.d
+
+INITSCRIPT_NAME = "delete-chromecache.sh"
+INITSCRIPT_PARAMS = "start 00 5 2 ."
 
 do_install() {
     install -d ${D}${sysconfdir}/X11/Xsession.d/
@@ -15,6 +21,9 @@ do_install() {
 
     install -d ${D}${bindir}/chrome/
     install master_preferences ${D}${bindir}/chrome/
+
+    install -d ${D}${sysconfdir}/init.d/
+    install -m 0755 delete-chromecache.sh ${D}${sysconfdir}/init.d/
 }
 
-FILES_${PN} = "${sysconfdir}/X11/Xsession.d/10xstartchrome.sh ${bindir}/chrome/master_preferences"
+FILES_${PN} = "${sysconfdir}/X11/Xsession.d/10xstartchrome.sh ${bindir}/chrome/master_preferences ${sysconfdir}/init.d/delete-chromecache.sh"
