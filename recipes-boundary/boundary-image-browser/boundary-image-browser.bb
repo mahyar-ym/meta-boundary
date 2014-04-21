@@ -21,4 +21,3 @@ ROOTFS_POSTPROCESS_COMMAND += "rootfs_passwd"
 rootfs_passwd () {
         sed -i 's/root::/root:$6$UpX6sfUyhkksHFi$4UaSSUpXaR7fo1boXQY4Kgn84M81PwmYfPTqF3qKfwlvkt76SzZiTQGti7Vi0uzQZ49m3abl.R5blSzWTPOj30:/g' ${IMAGE_ROOTFS}/etc/shadow
 }
-
