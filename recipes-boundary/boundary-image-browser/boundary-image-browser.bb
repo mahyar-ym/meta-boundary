@@ -10,6 +10,7 @@ inherit core-image
 IMAGE_INSTALL += " \
     gst-fsl-plugin \
     gstreamer \
+    packagegroup-fsl-gstreamer \
     nodejs4 \
     chromium \
     packagegroup-core-x11-xserver \
