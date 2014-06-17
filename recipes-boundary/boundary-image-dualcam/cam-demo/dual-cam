@@ -1,0 +1,5 @@
+#!/bin/sh
+gst-launch videomixer name=mix ! mfw_v4lsink sync=false \
+mfw_v4lsrc device=/dev/video0 ! video/x-raw-yuv ! mix.sink_0 \
+mfw_v4lsrc device=/dev/video2 ! video/x-raw-yuv ! videobox \
+left=-640 ! mix.sink_1

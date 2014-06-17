@@ -1,0 +1,2 @@
+#!/bin/sh
+gst-launch mfw_v4lsrc device=/dev/video0 ! mfw_v4lsink

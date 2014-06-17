@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Mipi camera
+Exec=/usr/bin/mipi-cam
+Icon=video-player
+Terminal=false
+Type=Application
+Categories=Applications;
+StartupNotify=true
+Comment=Mipi camera demo
+
+
