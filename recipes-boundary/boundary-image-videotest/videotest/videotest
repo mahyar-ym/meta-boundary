@@ -1,0 +1,3 @@
+#!/bin/sh
+gst-launch playbin uri=file:////home/root/videotest.webm
+
