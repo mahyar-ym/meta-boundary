@@ -1,3 +1,2 @@
 #!/bin/sh
-gst-launch playbin uri=file:////home/root/videotest.webm
-
+gst-launch filesrc location=/home/root/videotest.webm ! decodebin ! autovideosink
