@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=HDMI Camera
+Exec=/usr/bin/hdmi-cam
+Icon=video-player
+Terminal=false
+Type=Application
+Categories=Applications;
+StartupNotify=true
+Comment=HDMI camera demo
+
+

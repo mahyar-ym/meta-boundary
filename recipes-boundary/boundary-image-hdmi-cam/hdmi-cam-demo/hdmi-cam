@@ -1,0 +1,3 @@
+#!/bin/sh
+modprobe mxc_v4l2_capture ;
+gst-launch mfw_v4lsrc ! autovideosink
